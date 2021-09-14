@@ -1,0 +1,19 @@
+{
+  "name": "batchmanager",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "aws-sdk": "^2.989.0",
+    "event-stream": "^4.0.1",
+    "uid": "^2.0.0"
+  }
+}
