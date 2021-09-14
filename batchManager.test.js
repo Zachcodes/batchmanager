@@ -2,7 +2,8 @@ const batchManager = require('./lib/BatchManager');
 
 const createQueueItem = resolveMessage => {
     return async () => {
-        console.log(resolveMessage)
+        console.log(resolveMessage);
+        return resolveMessage;
     }
 }
 
@@ -23,6 +24,13 @@ const createRejectionItem = (errorMessage, ms = 1000) => {
     return async () => {
         await sleep(ms);
         throw new Error(errorMessage);
+    }
+}
+
+const createQueueItemWithCallback = (cb, ms = 1000) => {
+    return async () => {
+        await sleep(ms);
+        cb();
     }
 }
 
@@ -110,6 +118,18 @@ describe.only(('SequentialManager Functionality'), () => {
         expect(manager.meta.queueState).toBe('ready');
     });
 
+    test('results array is populated with all successful promise resolutions', async () => {
+        manager = batchManager();
+        manager.addToQueue([createQueueItem('result 1')]);
+        manager.addToQueue([createQueueItem('result 2')]);
+        manager.addToQueue([createQueueItem('result 3')]);
+        while(manager.results.length !== 3) {
+            await sleep(500);
+        }
+        expect(manager.meta.queueState).toBe('ready');
+        expect(manager.results).toEqual(['result 1', 'result 2', 'result 3']);
+    });
+
     test('queue status goes to error when current promise rejects', async () => {
         manager = batchManager({ maxRetries: 1 });
         manager.addToQueue([createRejectionItem('rejected')]);
@@ -159,7 +179,7 @@ describe.only(('SequentialManager Functionality'), () => {
         expect(reporter2.mock.calls.length).toBe(1);
     });
 
-    test.only('reporters are passed error as well as original function arguments', async () => {
+    test('reporters are passed error as well as original function arguments', async () => {
         const reporter1 = jest.fn();
         manager = batchManager({ maxRetries: 1 });
         manager.registerReporters([reporter1]);
@@ -173,5 +193,22 @@ describe.only(('SequentialManager Functionality'), () => {
         }
         expect(reporter1.mock.calls[0][0] instanceof Error).toBeTruthy();
         expect(reporter1.mock.calls[0][1]).toEqual(['foo', 'bar']);
+    });
+
+    test('next batch item is run after max failure count reached', async () => {
+        const reporter1 = jest.fn();
+        const successMock = jest.fn();
+        manager = batchManager({ maxRetries: 1 });
+        manager.registerReporters([reporter1]);
+        manager.addToQueue([createRejectionItem('rejected')]);
+        manager.addToQueue([createQueueItemWithCallback(successMock)]);
+        await sleep(500);
+        while(manager.meta.queueState !== 'error') {
+            await sleep(500);
+        }
+        while(!reporter1.mock.calls.length || !successMock.mock.calls.length) {
+            await sleep(500);
+        }
+        expect(successMock.mock.calls.length).toBe(1);
     });
 });
