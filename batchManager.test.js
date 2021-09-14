@@ -28,9 +28,9 @@ const createRejectionItem = (errorMessage, ms = 1000) => {
 }
 
 const createQueueItemWithCallback = (cb, ms = 1000) => {
-    return async () => {
+    return async (...params) => {
         await sleep(ms);
-        cb();
+        cb(...params);
     }
 }
 
@@ -105,6 +105,17 @@ describe.only(('SequentialManager Functionality'), () => {
         return new Promise((resolve) => {
             setTimeout(() => resolve(), 3000)
         })
+    });
+
+    test('queue items can be an array with function and params', async () => {
+        const successMock = jest.fn();
+        manager = batchManager();
+        manager.addToQueue([createQueueItemWithCallback(successMock), ['foo', 'bar']]);
+        while(!manager.results.length) {
+            await sleep(500);
+        }
+        expect(successMock.mock.calls.length).toBe(1);
+        expect(successMock.mock.calls[0]).toEqual(['foo', 'bar']);
     });
 
     test('queue status goes to waiting while promise in flight', async () => {
