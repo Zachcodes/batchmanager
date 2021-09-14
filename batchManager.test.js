@@ -6,6 +6,26 @@ const createQueueItem = resolveMessage => {
     }
 }
 
+const sleep = ms => {
+    return new Promise((resolve) => {
+        setTimeout(() => resolve(), ms);
+    });
+}
+
+const createDelayedItem = (resolvedMessage, ms = 1000) => {
+    return async () => {
+        await sleep(ms);
+        console.log(resolvedMessage)
+    }
+}
+
+const createRejectionItem = (errorMessage, ms = 1000) => {
+    return async () => {
+        await sleep(ms);
+        throw new Error(errorMessage);
+    }
+}
+
 describe(('BatchManager Base Class Functionality'), () => {
     let manager;
     afterEach(() => {
@@ -77,5 +97,81 @@ describe.only(('SequentialManager Functionality'), () => {
         return new Promise((resolve) => {
             setTimeout(() => resolve(), 3000)
         })
-    })
+    });
+
+    test('queue status goes to waiting while promise in flight', async () => {
+        manager = batchManager();
+        manager.addToQueue([createDelayedItem('running delayed')]);
+        await sleep(500);
+        expect(manager.meta.queueState).toBe('waiting');
+        while(manager.meta.queueState !== 'ready') {
+            await sleep(500);
+        }
+        expect(manager.meta.queueState).toBe('ready');
+    });
+
+    test('queue status goes to error when current promise rejects', async () => {
+        manager = batchManager({ maxRetries: 1 });
+        manager.addToQueue([createRejectionItem('rejected')]);
+        await sleep(500);
+        expect(manager.meta.queueState).toBe('waiting');
+        while(['waiting', 'ready'].indexOf(manager.meta.queueState) !== -1) {
+            await sleep(500);
+        }
+        expect(manager.meta.queueState).toBe('error');
+        while(manager.meta.queueState !== 'ready') {
+            await sleep(500);
+        }
+        expect(manager.meta.queueState).toBe('ready');
+    });
+
+    test('retries failed batch sets until max limit is reached', async () => {
+        manager = batchManager({ maxRetries: 3 });
+        manager.addToQueue([createRejectionItem('rejected')]);
+        await sleep(500);
+        expect(manager.meta.queueState).toBe('waiting');
+        while(['waiting', 'ready'].indexOf(manager.meta.queueState) !== -1) {
+            await sleep(500);
+        }
+        expect(manager.meta.queueState).toBe('error');
+        let lastRetryCount = 0;
+        while(manager.meta.queueState !== 'ready') {
+            lastRetryCount = manager.currentRetryCount;
+            await sleep(500);
+        }
+        expect(lastRetryCount).toBeLessThanOrEqual(manager.meta.maxRetries);
+    });
+
+    test('reporters are called once retry limit is reached', async () => {
+        const reporter1 = jest.fn();
+        const reporter2 = jest.fn();
+        manager = batchManager({ maxRetries: 1 });
+        manager.registerReporters([reporter1, reporter2]);
+        manager.addToQueue([createRejectionItem('rejected')]);
+        await sleep(500);
+        while(['waiting', 'ready'].indexOf(manager.meta.queueState) !== -1) {
+            await sleep(500);
+        }
+        while(manager.meta.queueState !== 'ready') {
+            await sleep(500);
+        }
+        expect(reporter1.mock.calls.length).toBe(1);
+        expect(reporter2.mock.calls.length).toBe(1);
+    });
+
+    test.only('reporters are passed error as well as original function arguments', async () => {
+        const reporter1 = jest.fn();
+        manager = batchManager({ maxRetries: 1 });
+        manager.registerReporters([reporter1]);
+        manager.addToQueue([createRejectionItem('rejected'), [ 'foo', 'bar' ]]);
+        await sleep(500);
+        while(['waiting', 'ready'].indexOf(manager.meta.queueState) !== -1) {
+            await sleep(500);
+        }
+        while(manager.meta.queueState !== 'ready') {
+            await sleep(500);
+        }
+        expect(reporter1.mock.calls[0][0] instanceof Error).toBeTruthy();
+        expect(reporter1.mock.calls[0][1]).toEqual(['foo', 'bar']);
+    });
 });
