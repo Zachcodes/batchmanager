@@ -1,9 +1,11 @@
-const batchManager = require('./lib/BatchManager');
+const batchManager = require('./lib/batchManager');
 jest.setTimeout(10000);
 
 const createQueueItem = resolveMessage => {
     return async () => {
-        console.log(resolveMessage);
+        if(resolveMessage) {
+            console.log(resolveMessage);
+        }
         return resolveMessage;
     }
 }
@@ -99,6 +101,45 @@ describe(('BatchManager Base Class Functionality'), () => {
             await sleep(500);
         }
         expect(manager.results.length).toBeFalsy();
+    });
+
+    test('addOne allows adding a single item to the queue', async () => {
+        manager = batchManager();
+        const jestPromises = [];
+        for(let i = 0; i < 100; i++) {
+            const fn = jest.fn();
+            jestPromises.push(fn);
+            await manager.addOne([createQueueItemWithCallback(fn, 0)]);
+        }   
+        expect(manager.promiseQueue.length).toBe(100);
+        while(manager.results.length !== 100) {
+            await sleep(100);
+        }
+        const calls = jestPromises.reduce((callCount, fn) => {
+            return callCount + fn.mock.calls.length
+        }, 0);
+        expect(manager.promiseQueue.length).toBe(0);
+        expect(calls).toBe(100);
+    });
+
+    test('addMany allows adding multiple items to the queue', async () => {
+        manager = batchManager();
+        const jestPromises = [];
+        const items = [];
+        for(let i = 0; i < 100; i++) {
+            const fn = jest.fn();
+            jestPromises.push(fn);
+            items.push(createQueueItemWithCallback(fn, 0))
+        }
+        manager.addMany(items);
+        while(manager.results.length !== 100) {
+            await sleep(100);
+        }
+        const calls = jestPromises.reduce((callCount, fn) => {
+            return callCount + fn.mock.calls.length
+        }, 0);
+        expect(manager.results.length).toBe(100);
+        expect(calls).toBe(100);
     });
 });
 
