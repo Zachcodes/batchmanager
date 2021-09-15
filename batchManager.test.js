@@ -1,4 +1,5 @@
 const batchManager = require('./lib/BatchManager');
+jest.setTimeout(10000);
 
 const createQueueItem = resolveMessage => {
     return async () => {
@@ -274,6 +275,51 @@ describe(('ParallelManager Functionality'), () => {
         expect(endTime - startTime).toBeLessThan(50 * 1000);
     });
 
+    test('addToQueue accepts initiated promises as argument and resolves them', async () => {
+        const promiseCb = jest.fn();
+        manager = batchManager({ mode: 'parallel' });
+        manager.addToQueue(createQueueItemWithCallback(promiseCb)());
+        while(manager.currentInFlight > 0) {
+            await sleep(500);
+        }
+        expect(manager.currentInFlight).toBe(0);
+        expect(promiseCb.mock.calls.length).toBe(1);
+    });
+
+    test('addToQueue accepts cb and calls it', async () => {
+        const promiseCb = jest.fn();
+        manager = batchManager({ mode: 'parallel' });
+        manager.addToQueue(createQueueItemWithCallback(promiseCb));
+        while(!promiseCb.mock.calls.length) {
+            await sleep(500);
+        }
+        expect(manager.currentInFlight).toBe(0);
+        expect(promiseCb.mock.calls.length).toBe(1);
+    });
+
+    test('addToQueue accepts array with callback at index 0 and calls it', async () => {
+        const promiseCb = jest.fn();
+        manager = batchManager({ mode: 'parallel' });
+        manager.addToQueue([createQueueItemWithCallback(promiseCb)]);
+        while(!promiseCb.mock.calls.length) {
+            await sleep(500);
+        }
+        expect(manager.currentInFlight).toBe(0);
+        expect(promiseCb.mock.calls.length).toBe(1);
+    });
+
+    test('addToQueue accepts array with callback at index 0 and calls it with arguments at index 1', async () => {
+        const promiseCb = jest.fn();
+        manager = batchManager({ mode: 'parallel' });
+        manager.addToQueue([createQueueItemWithCallback(promiseCb), ['foo', 'bar']]);
+        while(!promiseCb.mock.calls.length) {
+            await sleep(500);
+        }
+        expect(manager.currentInFlight).toBe(0);
+        expect(promiseCb.mock.calls.length).toBe(1);
+        expect(promiseCb.mock.calls[0]).toEqual(['foo', 'bar']);
+    });
+
     test('inflight promises cant go above set limit', async () => {
         const jestFns = [];
         manager = batchManager({ mode: 'parallel' });
@@ -292,5 +338,28 @@ describe(('ParallelManager Functionality'), () => {
             return callCount + mock.mock.calls.length;
         }, 0);
         expect(calls).toBe(100);
+    });
+
+    test('initiated promises passed to queue cause wait over inflight limit', async () => {
+        const promiseCb = jest.fn();
+        const jestFns = [];
+        manager = batchManager({ mode: 'parallel' });
+        for(let i = 0; i < 51; i++) {
+            const func = jest.fn();
+            jestFns.push(func);
+            manager.addToQueue(createQueueItemWithCallback(func, 1500));
+        }
+        while(manager.currentInFlight !== 50) {
+            await sleep(100);
+        }
+        expect(manager.currentInFlight).toBe(50);
+        const startTime = new Date().getTime();
+        await manager.addToQueue(createQueueItemWithCallback(promiseCb)());
+        const endTime = new Date().getTime();
+        expect(endTime - startTime).toBeGreaterThanOrEqual(1000);
+        while(manager.promiseQueue.length > 0) {
+            await sleep(100);
+        }
+        expect(promiseCb.mock.calls.length).toBe(1);
     });
 });
