@@ -84,9 +84,24 @@ describe(('BatchManager Base Class Functionality'), () => {
             expect(endTime - startTime).toBeLessThanOrEqual(ms);
         });
     });
+
+    test('calling retire while promises still in flight wont throw errors', async () => {
+        const successMock = jest.fn();
+        manager = batchManager();
+        manager.addToQueue([createQueueItemWithCallback(successMock)]);
+        while(manager.meta.queueState !== 'waiting') {
+            await sleep(100);
+        }
+        manager.retire();
+        expect(manager.meta.active).toBeFalsy();
+        while(!successMock.mock.calls.length) {
+            await sleep(500);
+        }
+        expect(manager.results.length).toBeFalsy();
+    });
 });
 
-describe.only(('SequentialManager Functionality'), () => {
+describe(('SequentialManager Functionality'), () => {
     let manager;
     afterEach(() => {
         manager.retire();
@@ -221,5 +236,61 @@ describe.only(('SequentialManager Functionality'), () => {
             await sleep(500);
         }
         expect(successMock.mock.calls.length).toBe(1);
+    });
+});
+
+describe(('ParallelManager Functionality'), () => {
+    let manager;
+    afterEach(() => {
+        manager.retire();
+    });
+    
+    test('passing parallel mode uses ParallelManager', () => {
+        manager = batchManager({ mode: 'parallel' });
+        expect(manager.meta.mode).toBe('parallel');
+    });
+
+    test('multiple promises can be in flight at the same time', async () => {
+        const jestFns = [];
+        manager = batchManager({ mode: 'parallel' });
+        const startTime = new Date().getTime();
+        for(let i = 0; i < 50; i++) {
+            const func = jest.fn();
+            jestFns.push(func);
+            manager.addToQueue(createQueueItemWithCallback(func));
+        }
+        expect(manager.promiseQueue.length).toBeLessThanOrEqual(50);
+        while(manager.promiseQueue.length > 0) {
+            await sleep(500);
+        }
+        const endTime = new Date().getTime();
+        const calls = jestFns.reduce( (callCount, mock) => {
+            return callCount + mock.mock.calls.length;
+        }, 0);
+        expect(calls).toBe(50);
+        expect(manager.promiseQueue.length).toBe(0);
+        expect(manager.results.length).toBe(50);
+        // sequential would be at least 1000 ms per item, parallel should execute in less
+        expect(endTime - startTime).toBeLessThan(50 * 1000);
+    });
+
+    test('inflight promises cant go above set limit', async () => {
+        const jestFns = [];
+        manager = batchManager({ mode: 'parallel' });
+        for(let i = 0; i < 100; i++) {
+            const func = jest.fn();
+            jestFns.push(func);
+            manager.addToQueue(createQueueItemWithCallback(func, 1000 * Math.random()));
+        }
+        expect(manager.promiseQueue.length).toBe(100);
+        await sleep(1200);
+        while(manager.currentInFlight > 0) {
+            await sleep(100);
+            expect(manager.currentInFlight).toBeLessThanOrEqual(50);
+        }
+        const calls = jestFns.reduce( (callCount, mock) => {
+            return callCount + mock.mock.calls.length;
+        }, 0);
+        expect(calls).toBe(100);
     });
 });
