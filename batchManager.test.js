@@ -362,4 +362,39 @@ describe(('ParallelManager Functionality'), () => {
         }
         expect(promiseCb.mock.calls.length).toBe(1);
     });
+
+    test('rejected promises are moved to the failure queue', async () => {
+        const reporter = jest.fn();
+        manager = batchManager({ mode: 'parallel', maxRetries: 3 });
+        manager.registerReporters([reporter])
+        manager.addToQueue([createRejectionItem()]);
+        while(!manager.currentInFlight) {
+            await sleep(200);
+        }
+        expect(manager.currentInFlight).toBe(1);
+        expect(manager.promiseQueue.length).toBe(1);
+        while(!manager.errorQueue.length || manager.promiseQueue.length) {
+            await sleep(200);
+        }
+        expect(manager.errorQueue.length).toBe(1);
+        expect(manager.promiseQueue.length).toBe(0);
+        while(!reporter.mock.calls.length) {
+            await sleep(250);
+        }
+        expect(reporter.mock.calls.length).toBe(1);
+    });
+
+    test('reporters are called with batch and error details', async () => {
+        const reporter = jest.fn();
+        manager = batchManager({ mode: 'parallel', maxRetries: 1 });
+        manager.registerReporters([reporter])
+        manager.addToQueue([createRejectionItem()]);
+        while(!reporter.mock.calls.length) {
+            await sleep(250);
+        }
+        expect(reporter.mock.calls.length).toBe(1);
+        expect(Object.prototype.hasOwnProperty.call(reporter.mock.calls[0][0], 'batch')).toBeTruthy();
+        expect(Object.prototype.hasOwnProperty.call(reporter.mock.calls[0][0], 'attempts')).toBeTruthy();
+        expect(Object.prototype.hasOwnProperty.call(reporter.mock.calls[0][0], 'err')).toBeTruthy();
+    });
 });
