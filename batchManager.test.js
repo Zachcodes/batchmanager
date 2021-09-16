@@ -19,7 +19,9 @@ const sleep = ms => {
 const createDelayedItem = (resolvedMessage, ms = 1000) => {
     return async () => {
         await sleep(ms);
-        console.log(resolvedMessage)
+        if(resolvedMessage) {
+            console.log(resolvedMessage)
+        }
     }
 }
 
@@ -57,6 +59,7 @@ describe(('BatchManager Base Class Functionality'), () => {
 
     test('manager instance name should be defined', () => {
         manager = batchManager();
+        manager.setInstanceName();
         expect(manager.managerInstanceName).not.toBeNull();
     });
 
@@ -278,6 +281,22 @@ describe(('SequentialManager Functionality'), () => {
             await sleep(500);
         }
         expect(successMock.mock.calls.length).toBe(1);
+    });
+
+    test('addToQueue waits until promise queue goes under unresolvedBatchLimit', async () => {
+        manager = batchManager();
+        manager.addToQueue(createDelayedItem());
+        for(let i = 0; i < 100; i++) {
+            manager.addToQueue(createQueueItem());
+        }
+        const startTime = new Date().getTime();
+        await manager.addToQueue(createQueueItem());
+        const endTime = new Date().getTime();
+        expect(endTime - startTime).toBeGreaterThanOrEqual(500);
+        while(manager.promiseQueue.length) {
+            await sleep(500);
+        }
+        expect(manager.promiseQueue.length).toBe(0);
     });
 });
 
